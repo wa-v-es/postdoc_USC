@@ -1,0 +1,110 @@
+#! /bin/bash
+#Script to determine locations used in subarray construction
+#Dan A Frost
+#19.1.2020
+#UC Berkeley
+
+
+#------------
+#Directories:
+#------------
+home_dir=/Users/keyser/Documents/softies/SmKS-main
+event_subdir="/eventdir/200910072141_new2020_SAC_BHT/"
+cd $event_subdir
+temps=$home_dir"/temps/"
+
+
+
+#------------
+#Infile:
+#------------
+eventstation=`ls eventStation.* | head -n1`
+
+#------------
+#Outdir:
+#------------
+dir_out=$dir_data"Subarray_locations/"
+\rm -f -r $dir_out; mkdir $dir_out
+
+#------------
+#Definitions:
+#------------
+    #subarray - the subset of stations at which each beam is calculated. Upt to 15 stations are selected to form the subarray
+    #grid - refers to the regular grid placed across the US with 1x1 degree spacing at which each sub array is attempted to be formed. The nearest real station to this grid point is used as the "base". Grid range is nominally 25 to 50N, -130 to -60 E.
+    #base - refers to the central station used to for each sub array (not where the beam is calculated). This is selected to be the nearest to the "grid" position. Stations are then selected around this station that most closely match another grid with 70x70 km spacing (nominally that of the TA stations).
+    #TA   - refers to the arithmetic average location of all of the stations used to for the sub array and is used as the "beam point", i.e. where the beam is calculated
+    #arrnum - integer number used to identify the position of the base station on the grid 
+
+
+#=========
+#LOOP START: LOOP OVER PHASES IN PHASE LIST
+#=========
+#for phase in `echo SKScd SKIKS Sdiff SKS SKKS S3KS S4KS`; do
+for phase in `echo SKKS`; do
+basestation_arrays=`ls "Basestation_Arrays."*"_"$phase".dat" | head -n1`
+master_results_list=`ls "TA_SubArray_SmKS_Search_"*"_"$phase".dat" | head -n1`
+evdate=`echo $master_results_list | awk -F"/" '{print $NF}' | cut -f6 -d"_"`
+
+#Outfile
+all_subarrays_outfile=$dir_out"Allsubarrays_"$phase"_"$evdate".txt"
+all_stations_outfile=$dir_out"Allstations_"$phase"_"$evdate".txt"
+\rm -r $all_subarrays_outfile; touch $all_subarrays_outfile
+\rm -r $all_stations_outfile; touch $all_stations_outfile
+
+#Prepare files of subarray details (array_pos1_$$) and stations in subarray (array_pos2_$$)
+#Prints: arraynum TAlat TAlon TAelv basestation baselat baselon gridlat gridlon numsta :
+awk '{print $1, $3, $4, $5, $9, $7, $8, $11, $12, $55, ":"}' $master_results_list > $temps"array_pos1_"$$
+#Prints: list of stations used to form beam at above TAlat TAlon TAelv position
+#gsed -e 's/ \+/ /g' -e  's/\t/ /g' $master_results_list | cut -d' ' -f 57- | cut -f1 -d"n" > $temps"array_pos2_"$$
+gsed -e 's/ \+/ /g' -e  's/\t/ /g' $master_results_list | cut -d' ' -f 57-  > $temps"array_pos2_"$$
+echo "subarray_var arraynum TAlat TAlon TAelv basestation baselat baselon gridlat gridlon numsta : stanames" > $all_subarrays_outfile
+paste $temps"array_pos1_"$$ $temps"array_pos2_"$$ | gsed -e 's/\t/ /g' -e 's/ \+/ /g' | awk '!seen[$0]++' >> $all_subarrays_outfile
+
+
+
+#=========
+#LOOP START: LOOP OVER LINES (SUBARRAYS) IN INPUT FILE
+#=========
+linenum_max=`awk 'END {print NR}' $temps"array_pos1_"$$`
+#linenum_max=10
+for linenum in `seq 1 1 $linenum_max`; do
+    echo linenum $linenum
+    subarray_var=(`awk -v linenum=$linenum 'NR==linenum {print $0}' $temps"array_pos1_"$$`)
+    station_var=(`awk -v linenum=$linenum 'NR==linenum {print $0}' $temps"array_pos2_"$$`)
+
+    #Outfile
+    each_subarray_outfile=$dir_out"Subarray_"${subarray_var[3]}"base_"${subarray_var[0]}"arrnum_"$phase"_"$evdate".txt"
+    \rm -f $each_subarray_outfile; touch $each_subarray_outfile
+
+    echo "subarray_var arraynum TAlat TAlon TAelv basestation baselat baselon gridlat gridlon numsta : stanames" >> $each_subarray_outfile
+    echo subarray_var ${subarray_var[*]} stations ${station_var[*]} >> $each_subarray_outfile
+    echo "station staname : staname network stalat stalon" >> $each_subarray_outfile
+    
+    #=========
+    #LOOP START: LOOP OVER STATIONS IN STATION_VAR (FOR EACH SUBARRAY)
+    #=========
+    for station in ${station_var[*]}; do
+	station_details=(`awk -v station=$station '$1==station {print $1, $2, $7, $9}' $eventstation | awk '{if ($3>180) print $1, $2, $3-360, $4; else print $1, $2, $3, $4}'`)
+	#Prints: "station" staname ":" staname network stalat stalon
+	echo station $station : ${station_details[*]} >> $each_subarray_outfile
+	echo station $station : ${station_details[*]} >> $all_stations_outfile
+	
+    #=========
+    #LOOP END: LOOP OVER STATIONS IN STATION_VAR
+    #=========
+    done
+    
+#=========
+#LOOP END: LOOP OVER LINES IN INPUT FILE 
+#=========
+done
+
+#=========
+#LOOP END: LOOP OVER PHASES IN PHASE LIST
+#=========
+done
+
+
+#Remove duplicate stations from list
+awk '!seen[$2]++' $all_stations_outfile > $temps"temp_list_$$"
+mv $temps"temp_list_$$" $all_stations_outfile

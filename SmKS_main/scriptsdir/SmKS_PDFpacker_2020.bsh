@@ -1,0 +1,113 @@
+#! /bin/bash
+#Loops over events, phases, and subarrays to create PDF files of all
+#Dan A Frost
+#19.2.2020
+#UC Berkeley
+
+
+#Directories
+home_dir=/Users/keyser/Documents/softies/SmKS-main
+cd $home_dir"/eventdir/"
+
+
+#List of event directories (with component name) to loop over and construct PDF file
+#IMPORTANT!! NEEDS ENDING "/" IN DIR NAME
+cat<<EOF > dirlist_$$
+201309210139_new2020_SAC_BHR
+201309011152_new2020_SAC_BHR
+201308120053_new2020_SAC_BHR
+201309210139_new2020_SAC_BHT
+201309011152_new2020_SAC_BHT
+201308120053_new2020_SAC_BHT
+EOF
+
+#Loop start: loop over event directories
+while read dir; do
+cd $dir
+master_results_list=`ls "TA_SubArray_SmKS_Search_"*".dat" | head -n1`
+var=(`awk 'NR==1 {print $8, $9}' $master_results_list`)
+echo $dir ${var[*]}
+
+
+
+
+echo dir $dir
+cd $dir
+pwd
+
+data_type=obs
+#data_type=synth
+#========
+if [ $data_type == "obs" ]; then
+   eventdate=`echo $dir | cut -c1-12`
+   comp=`echo $dir | rev | cut -c1-3 | rev`
+   comp1=`echo $comp | cut -c3`
+elif [ $data_type == "synth" ]; then
+   eventdate=`echo $dir | cut -f1 -d"/"`
+   comp=`echo $dir | rev | cut -c1 | rev`
+   comp1=`echo $comp | cut -c1`
+fi
+echo eventdate $eventdate comp $comp comp1 $comp1
+
+for phase in `echo SKS SKKS S3KS S4KS SKIKS SKScd Sdiff S PKS PcS`; do
+outpdf="SmKS_"$eventdate"_"$comp"_"$phase".pdf"
+echo outpdf $outpdf
+
+echo comp $comp phase $phase
+master_results_list=`ls "TA_SubArray_SmKS_Search_"*"_"*$comp"_"$phase".dat"`
+echo master_results_list $master_results_list
+
+if [ -z $master_results_list ]; then
+	continue
+fi
+
+type=order
+if [ $type == "order" ]; then
+
+echo ===
+echo DIR $dir phase $phase
+pwd
+echo $master_results_list
+echo ===
+
+
+if [ `awk 'END {print NR}' $master_results_list` -eq 0 ]; then
+continue
+fi
+
+awk '{print $1, $9}' $master_results_list | sort -nk2 -nk1 | awk '!seen[$0]++' > namelist_$$
+psvar=()
+while read num basesta; do
+if [ $data_type == "obs" ]; then
+	psfile=`ls "Vespapack_"*"_0.02_0.25Hz_"*"samps_"$comp1"comp_"$basesta"base_gridnum"$num"_num"*"_"$phase"_"*"_RECORD.ps"`
+elif [ $data_type == "synth" ]; then
+        psfile=`ls "Vespapack_"*"_0.02_0.083Hz_"*"samps_"$comp1"comp_"$basesta"base_gridnum"$num"_num"*"_"$phase"_"*"_RECORD.ps"`
+fi
+	pwd
+	echo comp1 $comp1 basesta $basesta num $num phase $phase
+	psvar=(${psvar[*]} $psfile)
+done < namelist_$$
+\rm namelist_$$
+
+echo ${psvar[*]}
+else
+	psvar=(`ls "Vespapack"*$phase".ps"`)
+fi
+
+#Depending on output size of PS file (in pixels*10)
+#gs -o $outpdf -g6120x7920 -sDEVICE=pdfwrite ${psvar[*]}
+gs -o $outpdf -g5950x8420 -sDEVICE=pdfwrite ${psvar[*]}             
+
+done
+
+#ONLY INCLUDE THIS IF YOU WANT ONE GIANT PDF OF ALL PS FILE (ALL PHASES FOR ONE EVENT)
+#psfiles=(`ls -t *RECORD.ps | tac`)
+#outpdf="SmKS_"$eventdate"_ALL.pdf"
+#gs -o $outpdf -g6120x7920 -sDEVICE=pdfwrite ${psfiles[*]}
+
+cd $home_dir
+#Loop end: loop over event directories
+done < dirlist_$$
+
+\rm dirlist_$$
+

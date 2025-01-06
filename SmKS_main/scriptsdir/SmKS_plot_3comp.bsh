@@ -1,0 +1,73 @@
+#! /bin/bash
+#Plots 3comp output of SmKS code. Uses rtz output from SmKS_sac2mseed.bsh.
+#Dan A Frost
+#1.3.2020
+#UC Berkeley
+alias sed='/opt/homebrew/bin/gsed'
+shopt -s expand_aliases
+
+
+#Inputs
+grid_in=$1
+type_in=${2-FILT}
+phase_in=${3-SKKS}
+dir=${4}
+
+#Select input file
+if [ -z $grid_in ]; then
+echo grid_in UNSET. Picking first
+#infile=`ls *rtz | awk 'NR==1'`
+infile=`ls $dir"/Trace_"*"_"$type_in"_"*"base_gridnum"*"_"$phase_in".rtz" | awk 'NR==1'`
+else
+infile=`ls $dir"/Trace_"*"_"$type_in"_"*"base_gridnum"$grid_in"_"$phase_in".rtz" | awk 'NR==1'`
+fi
+date_out=`echo $infile | cut -d"_" -f2`
+type_out=`echo $infile | cut -d"_" -f3`
+phase_out=`echo $infile | cut -d"_" -f6`
+echo infile $infile
+ls $infile
+#exit
+#----
+#PLOT
+#----
+
+#
+# Set GMT defaults
+#
+gmt gmtset FONT_TITLE 16
+gmt gmtset MAP_TITLE_OFFSET 0.0c
+gmt gmtset FONT_ANNOT_PRIMARY 12
+gmt gmtset FONT_ANNOT_SECONDARY 12
+gmt gmtset FONT_LABEL 12
+gmt gmtset MAP_LABEL_OFFSET 0.0c
+gmt gmtset LABEL_OFFSET 0.0c
+
+
+ranges=(`awk 'NR>1' $infile | gmt gmtinfo -C`)
+rt=(${ranges[0]} ${ranges[1]})
+rc1=(${ranges[2]} ${ranges[3]})
+rc2=(${ranges[4]} ${ranges[5]})
+rc3=(${ranges[6]} ${ranges[7]})
+
+range_c1="-R"${rt[0]}"/"${rt[1]}"/"${rc1[0]}"/"${rc1[1]}
+range_c2="-R"${rt[0]}"/"${rt[1]}"/"${rc2[0]}"/"${rc2[1]}
+range_c3="-R"${rt[0]}"/"${rt[1]}"/"${rc3[0]}"/"${rc3[1]}
+
+zinc_c1=`echo ${rc1[0]} ${rc1[1]} | awk '{printf "%.3f\n", ($2-$1)/5}'`
+zinc_c2=`echo ${rc2[0]} ${rc2[1]} | awk '{printf "%.3f\n", ($2-$1)/5}'`
+zinc_c3=`echo ${rc3[0]} ${rc3[1]} | awk '{printf "%.3f\n", ($2-$1)/5}'`
+
+frame="-JX15c/5c"
+pen_trace="-W0.05c,black"
+yoff0="3c"; xoff0="3c"
+yoff1="5c"
+
+
+outps=`echo $infile | awk -F"/" '{print $NF}' | sed 's/rtz/ps/'`
+awk 'NR>1 {print $1, -1*$2}' $infile | gmt psxy $range_c1 $frame -B20:"Time after origin (s)":/$zinc_c1:"R Amp.":WSen $pen_trace -Y$yoff0 -X$xoff0 -K > $outps
+awk 'NR>1 {print $1, -1*$3}' $infile | gmt psxy $range_c2 $frame -B20:"Time after origin (s)":/$zinc_c2:"T Amp.":Wsen $pen_trace -Y$yoff1 -O -K >> $outps
+awk 'NR>1 {print $1, $4}' $infile | gmt psxy $range_c3 $frame -B20:"Time after origin (s)":/$zinc_c3:"Z Amp.":Wsen:."$date_out - $type_out - $phase_out": $pen_trace -Y$yoff1 -O >> $outps
+
+echo $outps
+exit
+gs $outps &

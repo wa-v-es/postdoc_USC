@@ -1,0 +1,141 @@
+#! /bin/bash
+#For use in VespaPack_TA_S*KS_NOPadap_F90_EQ1_UD2019.bsh to pick phase onsets
+#Dan A Frost
+#24.3.2021
+#UC Berkeley
+
+
+#DIRECTORIES
+#temps="/NAS/dfrost/Work/Temps/"
+
+#==================================================================
+#==================================================================
+#  ONSET PICKING
+#==================================================================
+#==================================================================
+#ONSET PICKING PROCEDURE
+#USES SLOWNESS PICKED FROM XF AND TIME PICKED FROM DIFFERENTIATED BEAM
+#Find beam max in time range around prediction in XYZ file     - beam_max_xyz_PHASE_abs
+#Find slowness max in time and slowness range around beam max in XYZ file    - xf_max_xyz_PHASE - (keep this slowness -> OUTPUT)    
+#Form new beam on maximum XF slowness    - filt_max.xy/xf_max.xy
+#Diffentiate filtered beam      - filt_dif_max.xy
+#Take absolute beam amplitude in time range around prediction in same direction as radiation pattern   - beam_max_trc_PHASE_abs
+#Calculate absolute diff. beam amplitude (gradient) arriving 10 s before beam max, in same direction as radiation pattern   - beamdif_max_trc_PHASE_pos
+#Calculate average noise in diff. trace in window 20-10 s before beam max     - beamdif_mean_trc_noi
+#Calculate first point at which diff. beam amplitude crosses (diff. beam max - diff. beam noi)*threshold   - beamdif_onset_trc_PHASE   - (keep this slowness -> OUTPUT)    
+
+
+
+#-----------------------
+#Beam XYZ- PHASE arrival
+#-----------------------
+#VARIABLES
+# beam_max_xyz_PHASE_(pos/neg/abs): maximum/minimum/absolute beam amplitude in +/- $timerange around PHASE-pred
+# xf_max_xyz_PHASE: maximum XF value in +/- $timerange around PHASE-pred and +/- $slowanom_range around maximum BEAM slowness
+
+pred_time=$1
+pred_slow=$2
+phase=$3
+timerange1=$4
+timerange2=$5
+slowanom_range=$6
+beam_slow_xyz=$7
+xf_slow_xyz=$8
+final_max_file=$9
+proc_id=${10}
+ampav=${11}
+amp_posneg1=${12}
+amp_posneg2=${13}
+amp_posneg=($amp_posneg1 $amp_posneg2)
+#--------------------------------
+#CHECK IF ANY VARIABLES ARE UNSET
+for var in pred_time pred_slow phase timerange1 timerange2 slowanom_range beam_slow_xyz xf_slow_xyz final_max_file proc_id ampav amp_posneg1 amp_posneg2; do
+    if [ -z "${!var}" ] ; then
+        echo "------------------------"
+	echo "Variable $var is not set"
+        echo "------------------------"
+	exit
+    fi
+done
+#--------------------------------
+#=========
+#Maximum and minimum amplitudes of filtered beam (velocity) around PHASE-pred
+beam_max_xyz_PHASE_pos=(`awk -v timerange1=$timerange1 -v timerange2=$timerange2 '$1>=('$pred_time'-timerange1) && $1<=('$pred_time'+timerange2) && $2>=('$pred_slow'-'$slowanom_range') && $2<=('$pred_slow'+'$slowanom_range')' $beam_slow_xyz | sort -nrk3,4 | head -n1`)
+beam_max_xyz_PHASE_neg=(`awk -v timerange1=$timerange1 -v timerange2=$timerange2 '$1>=('$pred_time'-timerange1) && $1<=('$pred_time'+timerange2) && $2>=('$pred_slow'-'$slowanom_range') && $2<=('$pred_slow'+'$slowanom_range')' $beam_slow_xyz | sort -nk3,4 | head -n1`)
+echo beam_max_xyz_PHASE_pos ${beam_max_xyz_PHASE_pos[*]}
+echo beam_max_xyz_PHASE_neg ${beam_max_xyz_PHASE_neg[*]}
+#echo ---
+#head $beam_slow_xyz
+#tail $beam_slow_xyz
+echo PHASE ${pred_time} ${pred_slow} ${phase}
+echo timerange $timerange1 $timerange2
+echo slowrange $slowanom_range
+
+#Range allowed for picks to illustrate on plot
+echo 0 | awk -v time=$pred_time -v timerange1=$timerange1 -v timerange2=$timerange2 -v slow=$pred_slow -v slowrange=$slowanom_range '{print time-timerange1, slow-slowrange"\n"time-timerange1, slow+slowrange"\n"time+timerange2, slow+slowrange"\n"time+timerange2, slow-slowrange"\n"time-timerange1, slow-slowrange}' > $temps"SmKS_slow_pick_range_"$proc_id
+echo 0 | awk -v time=$pred_time -v timerange1=$timerange1 -v timerange2=$timerange2 -v slow=$pred_slow -v slowrange=$slowanom_range '{print time-timerange1, -30"\n"time-timerange1, 30"\n>\n"time+timerange2, -30"\n"time+timerange2, 30}' > $temps"SmKS_baz_pick_range_"$proc_id
+
+
+#=====
+amplow=`echo $ampav | awk '{if ((sqrt($1**2))<0.1) print "LOW_AMP"; else print "HIGH_AMP"}'`
+if [ $amplow == "LOW_AMP" ]; then
+amp_posneg=(`echo ${beam_max_xyz_PHASE_pos[2]} ${beam_max_xyz_PHASE_neg[2]} | awk '{if ((sqrt($1**2))>(sqrt($2**2))) print 1, "DIFF"; else print -1, "DIFF"}'`)
+fi
+echo amplow $amplow
+echo amp_posneg ${amp_posneg[*]}
+#amp_posneg=(1 "SAME")
+#=====
+echo ampsum ${amp_posneg[1]} amp_posneg ${amp_posneg[0]}
+echo beam_max_xyz_PHASE_pos ${beam_max_xyz_PHASE_pos[*]} beam_max_xyz_PHASE_neg ${beam_max_xyz_PHASE_neg[*]}
+#Pick maximum/miniumum beam value based on polarity from radiation pattern
+beam_max_xyz_PHASE_abs=(`echo ${beam_max_xyz_PHASE_pos[*]} ${beam_max_xyz_PHASE_neg[*]} | awk '{if ('${amp_posneg[0]}'==1) print $1, $2, $3; else if ('${amp_posneg[0]}'==-1) print $4, $5, $6}'`) #Largest amplitude (pos/neg)
+echo beam_max_xyz_PHASE_abs ${beam_max_xyz_PHASE_abs[*]}
+awk -v timerange1=$timerange1 -v timerange2=$timerange2 '$1>=('$pred_time'-timerange1) && $1<=('$pred_time'+timerange2) && $2>=('$pred_slow'-'$slowanom_range') && $2<=('$pred_slow'+'$slowanom_range')' $beam_slow_xyz > $temps$phase"_BEAM_TEMP_"$proc_id  #PHASE beam data around PHASE-predicted
+awk -v timerange1=$timerange1 -v timerange2=$timerange2 '$1>=('$pred_time'-timerange1) && $1<=('$pred_time'+timerange2) && $2>=('$pred_slow'-'$slowanom_range') && $2<=('$pred_slow'+'$slowanom_range')' $xf_slow_xyz > $temps$phase"_XF_TEMP_"$proc_id #PHASE xf data around PHASE-predicted
+
+echo ---- INSIDE SmKS ---
+echo BEAM_TEMP
+gmt gmtinfo $temps$phase"_BEAM_TEMP_"$proc_id
+echo XF_TEMP
+gmt gmtinfo $temps$phase"_XF_TEMP_"$proc_id
+echo ---- INSIDE SmKS ---
+
+#beam_temp_av=`awk '{A+=$3; N+=1} END {print A/N}' $temps$phase"_BEAM_TEMP_"$proc_id`
+#beam_temp_med=`sort -n $temps$phase"_BEAM_TEMP_"$proc_id | awk ' { a[i++]=$3; } END { x=int((i+1)/2); if (x < (i+1)/2) print (a[x-1]+a[x])/2; else print a[x-1]; }'`
+#echo beam_temp_Av ${beam_temp_av}
+#echo beam_temp_med ${beam_temp_med}
+#awk -v med=$beam_temp_med '{print $1, $2, $3-med}' $temps$phase"_BEAM_TEMP_"$proc_id > $temps$phase"_BEAM_TEMP_MOD_"$proc_id
+
+#if [ $phase == "S3KS" -o $phase == "S4KS" ]; then
+if [ $phase == "S3KS" -o $phase == "S4KS" -o $phase == "Sdiff" ]; then
+gmt trend2d -Fxyr $temps$phase"_BEAM_TEMP_"$proc_id -N2 > $temps$phase"_BEAM_TEMP_MOD_"$proc_id
+mv $temps$phase"_BEAM_TEMP_MOD_"$proc_id $temps$phase"_BEAM_TEMP_"$proc_id
+fi
+
+#gmt grdtrend $temps$phase"_BEAM_TEMP_"$proc_id -N2 -Ddiff_out.nc -Ttrend_out.nc
+#cp diff_out.nc $temps$phase"_BEAM_TEMP_"$proc_id
+beam_xf_test=(`paste $temps$phase"_BEAM_TEMP_"$proc_id $temps$phase"_XF_TEMP_"$proc_id | awk '{A+=($1-$4); B+=($2-$5)} END {printf "%.0f %.0f", A*1000, B*1000}'`)
+#echo beam_xf_text ${beam_xf_test[*]}
+if [ ${beam_xf_test[0]} -ne 0 -o ${beam_xf_test[1]} -ne 0 ]; then echo NOT EQUAL; exit; fi
+xf_max_xyz_PHASE=(`paste $temps$phase"_BEAM_TEMP_"$proc_id $temps$phase"_XF_TEMP_"$proc_id | awk '{if ('${amp_posneg[0]}'>0 && $3>=0 && $2>=('${beam_max_xyz_PHASE_abs[1]}'-'$slowanom_range') && $2<=('${beam_max_xyz_PHASE_abs[1]}'+'$slowanom_range')) print $4, $5, $6; else if ('${amp_posneg[0]}'<0 && $3<=0 && $2>=('${beam_max_xyz_PHASE_abs[1]}'-'$slowanom_range') && $2<=('${beam_max_xyz_PHASE_abs[1]}'+'$slowanom_range')) print $4, $5, $6}' | sort -nrk3,4 | head -n1`)
+xf_max_xyz_PHASE=(`printf "%7.2f %4.2f %6.2f" ${xf_max_xyz_PHASE[0]} ${xf_max_xyz_PHASE[1]} ${xf_max_xyz_PHASE[2]}`)
+echo xf_max_xyz_PHASE ${xf_max_xyz_PHASE[*]}
+#\rm $temps$phase"_BEAM_TEMP_"$proc_id $temps$phase"_XF_TEMP_"$proc_id 
+
+#Use time and slowness to identify back-azimuth of maximum XF
+#FINALMAXFILE: rel_baz, slow, time, XF, Beam, abs_baz
+xf_max_xyz_PHASE=(`awk '$3=='${xf_max_xyz_PHASE[0]}' && $2=='${xf_max_xyz_PHASE[1]}'' $final_max_file | sort -nrk4 | awk 'NR==1 {printf "%7.2f %4.2f %7.3f %7.2f %7.2f", $3, $2, $4, $1, $6}'`) #Time, Slow, XF, rel_baz abs_baz
+#DEBUG echo ===
+#DEBUG awk '$3=='${xf_max_xyz_PHASE[0]}' && $2=='${xf_max_xyz_PHASE[1]}'' $FINALMAXFILE | sort -nrk4 | head -n20
+#DEBUG echo ===
+echo xf_max_xyz_PHASE ${xf_max_xyz_PHASE[*]}
+#\rm $FINALMAXFILE
+#=========
+
+echo ${beam_max_xyz_PHASE_abs[*]} > $temps$phase"_PICKS_"$proc_id
+echo ${xf_max_xyz_PHASE[*]} >> $temps$phase"_PICKS_"$proc_id
+echo $amplow ${amp_posneg[0]} ${amp_posneg[1]} >> $temps$phase"_PICKS_"$proc_id
+
+
+#==============
+#==============

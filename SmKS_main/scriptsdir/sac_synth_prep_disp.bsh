@@ -1,0 +1,89 @@
+#! /bin/bash
+#Prepares SPECFEM synthetics (in sac form) for running with SmKS_TALooper_2020.bsh
+#Dan Frost
+#2.11.2021
+#UC Berkeley
+
+
+#Directories
+homedir=`pwd`
+
+#Paramters
+synthtype=M #B or M for BX* and MX*, respectively
+
+#===========
+#LOOP START: LOOP OVER DIRECTORIES
+#===========
+#for dir in `echo GLADM15 PREM PREMonlyattent S40RTS_1Dcrust S40RTS`; do
+#	cd $dir
+
+#Unpack tar of traces
+\rm -r sacfiles
+zipfile=`ls *zip`
+unzip $zipfile
+cd sacfiles
+
+#===========
+#LOOP START: LOOP OVER TRACES AND REWRITE
+#===========
+for sacfile in `ls *sem.sac`; do
+sac<<EOF
+r $sacfile
+write over
+q
+EOF
+#===========
+#LOOP END: LOOP OVER TRACES AND REWRITE
+#===========
+done
+
+#===========
+#LOOP START: LOOP OVER TRACES AND ROTATE
+#===========
+for station in `ls *sem.sac | cut -f1,2 -d"." | awk '!seen[$0]++'`; do
+sacfile_n=$station"."$synthtype"XN.sem.sac"
+sacfile_e=$station"."$synthtype"XE.sem.sac"
+
+sacfile_r=$station"."$synthtype"XR.sem.sac"
+sacfile_t=$station"."$synthtype"XT.sem.sac"
+ls $sacfile_n $sacfile_e
+
+
+#Rotate traces from ZNE to ZRT
+sac<<EOF
+r $sacfile_n $sacfile_e
+rotate to GCP
+write $sacfile_r $sacfile_t
+q
+done
+EOF
+
+#=========
+#LOOP END: LOOP OVER TRACES
+#=========
+done
+
+
+#Move components into separate subdirectories
+cd ../
+#==========
+#LOOP START: LOOP OVER COMPONENTS AND MOVE TRACES
+#==========
+for comp in `echo R T Z`; do
+mkdir "sacfiles_"$comp
+echo ---
+mv "sacfiles/"*$synthtype"X"$comp".sem.sac" "sacfiles_"$comp
+#========
+#LOOP END: LOOP OVER COMPONENTS AND MOVE TRACES
+#========
+done
+
+#Change directory ready for the next loop iteration
+cd $homedir
+
+#=========
+#LOOP END: LOOP OVER DIRECTORIES
+#=========
+#done
+
+

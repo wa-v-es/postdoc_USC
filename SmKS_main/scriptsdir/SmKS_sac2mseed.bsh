@@ -1,0 +1,290 @@
+#! /bin/bash
+#Prepares beams as 3 component xy files and header
+#19/10/2020
+#Dan A Frost
+#UC Berkeley
+alias sed='/opt/homebrew/bin/gsed'
+shopt -s expand_aliases
+
+
+#Directories
+home_dir=/Users/keyser/Documents/softies/SmKS-main
+comb_traces_home=$home_dir"Comb_traces_2020/"
+if [ ! -d $comb_traces_home ]; then
+mkdir $comb_traces_home
+fi
+
+#Parameters
+#comp_master="BHZ"
+#comp_n2="BHR"
+#comp_n3="BHT"
+
+comp_master="R"
+comp_n2="T"
+comp_n3="Z"
+
+
+#Change directory
+cd $home_dir
+
+#List of directories to search, without component name at end
+cat<<EOF>$home_dir"dirlist_$$"
+201307071835_new2020_SAC 
+201304200451_new2020_SAC
+201304190305_new2020_SAC
+201304060442_new2020_SAC
+201208261505_new2020_SAC
+201208140259_new2020_SAC
+EOF
+
+#===========
+#LOOP START: LOOP OVER DIRECTORIES
+#===========
+for dir_in in `cat $home_dir"dirlist_"$$`; do
+
+    dir_out=`echo $dir_in | sed 's/_//'`
+    comb_traces_dir=$comb_traces_home$dir_out"_CombTraces/"
+    if [ ! -d $comb_traces_dir ]; then
+	mkdir $comb_traces_dir
+    else
+	\rm -r $comb_traces_dir; mkdir $comb_traces_dir
+    fi
+ 	
+	#===========
+	#LOOP START: LOOP OVER BEAM TYPE (FILT: filtered beam, and BEAM: unfiltered beam)
+	#===========
+	for beam_type in `echo FILT BEAM`; do
+
+    eventname=`echo $dir_out | sed 's/[a-zA-Z_]//g'`
+    #eventname=`echo $dir_out | cut -f1 -d"_"`
+    beam_list=(`ls $dir_in"_BH"$comp_master"/Beam_traces_BH"$comp_master"/"$beam_type"_"*".xy"`)
+    echo beam_list ${beam_list[*]}
+    
+    #-----
+    #Construct summary output files
+    phase_list=(`ls $dir_in"_BH"$comp_master"/Beam_traces_BH"$comp_master"/"$beam_type"_"*".xy" | awk -F"/" '{print $NF}' | cut -f2 -d"_"`)
+    #phase_list=(SKS)
+    echo phase_list ${phase_list[*]}
+
+    for phase in ${phase_list[*]}; do
+	echo ---
+    array_file_comb="Allsubarrays_"$beam_type"_"$phase"_"$eventname".txt"
+    if [ -f $comb_traces_dir$array_file_comb ]; then
+	\rm $comb_traces_dir$array_file_comb; touch $comb_traces_dir$array_file_comb
+    else
+	touch $comb_traces_dir$array_file_comb
+    fi
+    echo $comb_traces_dir$array_file_comb
+    done
+    #-----
+
+    
+    echo ======
+    echo ------
+    #===========
+    #LOOP START: LOOP OVER BEAMS
+    #===========
+    for beam_name in ${beam_list[*]}; do
+	#Skim info about beam from trace name
+	basestation=`echo $beam_name | awk -F"/" '{print $NF}' | cut -f9 -d"_" | sed 's/base//'`
+	gridnum=`echo $beam_name | awk -F"/" '{print $NF}' | cut -f10 -d"_" | sed 's/gridnum//'`
+	phase=`echo $beam_name | awk -F"/" '{print $NF}' | cut -f2 -d"_"`
+
+	file_basestation=`ls $dir_in"_BH"$comp_master"/Basestation_Array"*$phase".dat"`
+	basestation_ll=(`grep $basestation $file_basestation | grep $gridnum | awk '{print $2, $3}'`)
+	array_file_comb="Allsubarrays_"$beam_type"_"$phase"_"$eventname".txt" #Created earlier
+	beam_file_comb="Trace_"$eventname"_"$beam_type"_"$basestation"base_gridnum"$gridnum"_"$phase".rtz"
+	if [ -f $comb_traces_dir$beam_file_comb ]; then
+		\rm $comb_traces_dir$beam_file_comb 
+	fi
+
+
+	header_file_out="Trace_"$eventname"_"$beam_type"_"$basestation"base_gridnum"$gridnum"_"$phase".head"
+    	if [ -f $comb_traces_dir$header_file_out ]; then
+    		\rm $comb_traces_dir$header_file_out
+   	fi
+		
+
+	#Display info to screen
+	echo basestation $base_station gridnum $gridnum phase $phase
+	echo file_basestation $file_basestation
+	echo basestation_ll ${basestation_ll[*]}
+	
+	#Prepare names of different component files from master file
+	beam_root_master=`echo $beam_name | cut -f1-14 -d"_"`
+
+	
+	beam_root_comp_n2=`echo $beam_root_master | sed -e "s/BH$comp_master/BH$comp_n2/g" -e "s/${comp_master}comp/${comp_n2}comp/"`
+	beam_root_comp_n3=`echo $beam_root_master | sed -e "s/BH$comp_master/BH$comp_n3/g" -e "s/${comp_master}comp/${comp_n3}comp/"`
+
+	#Locate different component files
+	beam_file_master=`ls $beam_root_master*".xy" | head -n1`
+	beam_file_comp_n2=`ls $beam_root_comp_n2*".xy" | head -n1`
+	beam_file_comp_n3=`ls $beam_root_comp_n3*".xy" | head -n1`  #Currently there are no BHZ files
+	#beam_file_comp_n3="dummy_file_"$comp_n3
+
+        if [ ! -f $beam_file_comp_n2 ]; then
+            echo problem $beam_file_comp_n2
+            exit
+        fi
+	
+        if [ ! -f $beam_file_comp_n3 ]; then
+            echo problem $beam_file_comp_n3
+            exit
+        fi
+
+
+	echo $beam_file_master
+	beam_file_master_count=`awk 'END {print NR}' $beam_file_master`
+	
+	#Check if there is data
+	echo beam_file_master_count $beam_file_master_count
+	if [ $beam_file_master_count -eq 0 ]; then
+	echo beam_file_master_count $beam_file_master_count
+	continue
+	fi
+
+
+	echo "EventName BaseStation ArrayNum BaseStationLat BaseStationLon Phase : EvLa EvLo EvDp EvMg : Fmin(Hz) Fmax : RadPat_master RadPat_Cn2 RadPat_Cn3 : StaNum #sta StaList StaNames" > $comb_traces_dir$header_file_out
+#	echo "EventName BaseStation ArrayNum BaseStationLat BaseStationLon Phase : EvLa EvLo EvDp : Fmin(Hz) Fmax : StaNum #sta StaList StaNames" > $comb_traces_dir$header_file_out
+
+
+
+	#locate data files for different components
+        data_list_master=(`ls $dir_in"_BH"$comp_master"/TA_SubArray_SmKS_Search_"*"_BH"$comp_master"_"$phase".dat"`)
+        data_list_comp_n2=(`ls $dir_in"_BH"$comp_n2"/TA_SubArray_SmKS_Search_"*"_BH"$comp_n2"_"$phase".dat"`)
+        data_list_comp_n3=(`ls $dir_in"_BH"$comp_n3"/TA_SubArray_SmKS_Search_"*"_BH"$comp_n3"_"$phase".dat"`)
+
+	echo data_list_master $data_list_master gridnum $gridnum basestation $basestation
+	echo --
+	awk -v gridnum=$gridnum -v basestation=$basestation '$1==gridnum && $9==basestation' $data_list_master | sed -e 's/ \+/ /g' -e  's/\t/ /g' | cut -d' ' -f 62-
+	echo --
+	data_stainfo=(`awk -v gridnum=$gridnum -v basestation=$basestation '$1==gridnum && $9==basestation' $data_list_master | sed -e 's/ \+/ /g' -e  's/\t/ /g' | cut -d' ' -f 62- | cut -f1 -d"n"`)
+	if [ $beam_type == "FILT" ]; then
+	    data_filtinfo=(`awk -v gridnum=$gridnum -v basestation=$basestation '$1==gridnum && $9==basestation' $data_list_master | awk '{print $40, $42}'`)
+	    amp=(`awk -v gridnum=$gridnum -v basestation=$basestation '$1==gridnum && $9==basestation' $data_list_master | awk '{print $53, $54}'`) #Filt traces will be flipped if the rad pat is negative. Prints Amp, Amp_PosNeg
+
+
+	elif [ $beam_type == "BEAM" ]; then
+	    data_filtinfo=("NA" "NA")
+	    amp=(`awk -v gridnum=$gridnum -v basestation=$basestation '$1==gridnum && $9==basestation' $data_list_master | awk '{print $53, 1}'`) #Beam traces are never flipped, but may be lower amplitude due to rad pat. Prints Amp, Amp_PosNeg(always 1 for beam)
+	fi
+	
+	data_evinfo=(`awk -v gridnum=$gridnum -v basestation=$basestation '$1==gridnum && $9==basestation' $data_list_master | awk '{print $14, $15, $16, $17}'`)
+	echo ---
+	echo gridnum $gridnum basestation $basestation
+	echo data_stainfo ${data_stainfo[*]}
+	echo data_filtinfo ${data_filtinfo[*]}
+	echo ---
+
+if [ -z $beam_file_comp_n2 ]; then
+	continue
+fi
+if [ -z $beam_file_comp_n3 ]; then
+	continue
+fi
+
+
+#Check if any traces are flipped due to the radiation pattern (print out in header info if so)
+amp_master=(`awk -v gridnum=$gridnum -v basestation=$basestation '$1==gridnum && $9==basestation' $data_list_master | awk '{print $53, $54}'`) #Filt traces will be flipped if the rad pat is negative. Prints Amp, Amp_PosNeg
+amp_comp_n2=(`awk -v gridnum=$gridnum -v basestation=$basestation '$1==gridnum && $9==basestation' $data_list_comp_n2 | awk '{print $53, $54}'`) #Filt traces will be flipped if the rad pat is negative. Prints Amp, Amp_PosNeg
+amp_comp_n3=(`awk -v gridnum=$gridnum -v basestation=$basestation '$1==gridnum && $9==basestation' $data_list_comp_n3 | awk '{print $53, $54}'`) #Filt traces will be flipped if the rad pat is negative. Prints Amp, Amp_PosNeg
+echo data_list_master $data_list_master amp_master ${amp_master[*]}
+
+if [ ${amp_master[1]} -eq -1 ]; then
+	header_master=$comp_master"_m"
+else
+	header_master=$comp_master
+fi
+
+echo data_list_comp_n2 $data_list_comp_n2 amp_comp_n2 ${amp_comp_n2[*]}
+if [ ${amp_comp_n2[1]} -eq -1 ]; then
+	header_comp_n2=$comp_n2"_m"
+else
+	header_comp_n2=$comp_n2
+fi
+
+echo data_list_comp_n3 $data_list_comp_n3 amp_comp_n3 ${amp_comp_n3[*]}
+if [ ${amp_comp_n3[1]} -eq -1 ]; then
+	header_comp_n3=$comp_n3"_m"
+else
+	header_comp_n3=$comp_n3
+fi
+
+
+
+#Display file info to screen
+echo ----
+echo beam_file_master $beam_file_master
+head $beam_file_master
+echo ----
+echo beam_file_comp_n2 $beam_file_comp_n2
+head $beam_file_comp_n2
+echo ----
+echo beam_file_comp_n3 $beam_file_comp_n3
+#awk '{print $1, 0, 0}' $beam_file_master > $beam_file_comp_n3
+head $beam_file_comp_n3
+
+#Choice: put header info in trace file or in separate file?
+#ans1="in_trace"
+ans1="in_separate"
+
+#Print header into trace file
+if [ $ans1 == "in_trace" ]; then
+echo =====
+echo =====
+#Print out to file
+echo "EventName BaseStation ArrayNum BaseStationLat BaseStationLon Phase : EvLa EvLo EvDp EvMg : Fmin(Hz) Fmax : RadPat_master RadPat_Cn2 RadPat_Cn3 : StaNum #sta StaList StaNames" > $comb_traces_dir$beam_file_comb
+echo $eventname $basestation $gridnum ${basestation_ll[0]} ${basestation_ll[1]} $phase :ev ${data_evinfo[0]} ${data_evinfo[1]} ${data_evinfo[2]} ${data_evinfo[3]} :filt ${data_filtinfo[0]} ${data_filtinfo[1]} :amp ${amp_master[0]} ${amp_comp_n2[0]} ${amp_comp_n3[0]} :sta ${data_stainfo[*]} >> $comb_traces_dir$beam_file_comb
+#echo "Time" $comp_master $comp_n2 $comp_n3 >> $comb_traces_dir$beam_file_comb
+echo "Time" $header_master $header_comp_n2 $header_comp_n3 >> $comb_traces_dir$beam_file_comb
+#Prints: Time, Amp-file1, Amp-file2, Amp-file3
+paste $beam_file_master $beam_file_comp_n2 $beam_file_comp_n3 | awk '{print $1, $3, $6, $9}' >> $comb_traces_dir$beam_file_comb
+echo ----
+head $beam_file_comb
+echo =====
+echo =====
+
+
+#Print header into separate file
+elif [ $ans1 == "in_separate" ]; then
+echo inhere
+#echo "EventName BaseStation ArrayNum BaseStationLat BaseStationLon Phase" > $comb_traces_dir$beam_file_comb
+#echo "EventName BaseStation ArrayNum BaseStationLat BaseStationLon Phase : EvLa EvLo EvDp EvMg : Fmin(Hz) Fmax : RadPat_master RadPat_Cn2 RadPat_Cn3 : StaNum #sta StaList StaNames" > $comb_traces_dir$beam_file_comb
+
+echo $eventname $basestation $gridnum ${basestation_ll[0]} ${basestation_ll[1]} $phase :ev ${data_evinfo[0]} ${data_evinfo[1]} ${data_evinfo[2]} ${data_evinfo[3]} :filt ${data_filtinfo[0]} ${data_filtinfo[1]} :amp ${amp_master[0]} ${amp_comp_n2[0]} ${amp_comp_n3[0]} :sta ${data_stainfo[*]} >> $comb_traces_dir$header_file_out
+echo $eventname $basestation $gridnum ${basestation_ll[0]} ${basestation_ll[1]} $phase :ev ${data_evinfo[0]} ${data_evinfo[1]} ${data_evinfo[2]} ${data_evinfo[3]} :filt ${data_filtinfo[0]} ${data_filtinfo[1]} :amp ${amp_master[0]} ${amp_comp_n2[0]} ${amp_comp_n3[0]} :sta ${data_stainfo[*]} >> $comb_traces_dir$array_file_comb
+
+
+#echo $eventname $basestation $gridnum ${basestation_ll[0]} ${basestation_ll[1]} $phase :ev ${data_evinfo[0]} ${data_evinfo[1]} ${data_evinfo[2]} :filt ${data_filtinfo[0]} ${data_filtinfo[1]} :sta ${data_stainfo[*]} >> $comb_traces_dir$header_file_out
+#echo $eventname $basestation $gridnum ${basestation_ll[0]} ${basestation_ll[1]} $phase :ev ${data_evinfo[0]} ${data_evinfo[1]} ${data_evinfo[2]} :filt ${data_filtinfo[0]} ${data_filtinfo[1]} :sta ${data_stainfo[*]} >> $comb_traces_dir$array_file_comb
+
+
+#echo "Time" $comp_master $comp_n2 $comp_n3 > $comb_traces_dir$beam_file_comb
+echo "Time" $header_master $header_comp_n2 $header_comp_n3 >> $comb_traces_dir$beam_file_comb
+#Prints: Time, Amp-file1, Amp-file2, Amp-file3
+paste $beam_file_master $beam_file_comp_n2 $beam_file_comp_n3 | awk '{print $1, $3, $6, $9}' >> $comb_traces_dir$beam_file_comb
+echo ----
+head $comb_traces_dir$beam_file_comb
+fi
+    
+    #===========
+    #LOOP END: LOOP OVER BEAMS
+    #===========
+    done
+
+#=========
+#LOOP END: LOOP OVER BEAM TYPE
+#=========
+done
+
+
+#=========
+#LOOP END: LOOP OVER DIRECTORIES
+#=========
+done
+
+#Removals
+\rm $home_dir"dirlist_"$$
+
+

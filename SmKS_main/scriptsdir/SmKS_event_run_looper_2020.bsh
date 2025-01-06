@@ -1,0 +1,48 @@
+#! /bin/bash
+#Starts script in a loop and distributes jobs using "screen". Ensure that you understand "screen" before you start this process
+#Dan A Frost
+#19.2.2020
+#UC Berkeley
+
+
+#Directories
+home_dir=/Users/keyser/Documents/softies/SmKS-main
+cd $home_dir"eventdir/"
+
+
+#List of each event directory (with component name) to run
+#-------
+#WARNING
+#-------
+cat<<EOF > dirlist_$$
+200910072141_SAC_BHR/
+200910072141_SAC_BHZ/
+200910072141_SAC_BHT/
+EOF
+region=US #US or Alaska or AUS or HLP or Mex
+data_type=obs #obs or synthM or synthB
+
+evcount=`cat dirlist_$$ | wc -l`
+if [ $evcount -gt 20 ]; then
+echo "TOO MANY EVENTS TO RUN SIMULTANEOUSLY, MARK WILL GET MAD"
+	exit
+fi
+
+#Loop start: loop over event directories
+sess_num=1001
+for dir in `cat dirlist_$$`; do
+echo ---
+cd $dir
+comp=`echo $dir | rev  |cut -c1`
+echo comp $comp sess_num $sess_num
+pwd
+
+screen -S $sess_num -d -m  $home_dir"/scriptsdir/SmKS_TALooper_2020.bsh" 1 $comp $region $data_type
+sleep 1s
+
+cd $home_dir
+
+((sess_num++))
+#Loop end : loop over event directories
+done
+\rm dirlist_$$
